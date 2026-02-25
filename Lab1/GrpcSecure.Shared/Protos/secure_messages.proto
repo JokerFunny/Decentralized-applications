@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+option csharp_namespace = "GrpcSecure.Shared.Protos";
+
+package securemessaging;
+
+service SecureCommunication {
+  // 1. Initial connection to obtain a session and a key.
+  rpc Handshake (HandshakeRequest) returns (HandshakeResponse);
+  
+  // 2. Secure message exchange.
+  rpc SendMessage (SecureMessage) returns (SecureMessage);
+}
+
+message HandshakeRequest {
+    // Can be empty, or contain client capabilities.
+}
+
+message HandshakeResponse {
+  string session_id = 1;
+  bytes xor_key = 2; // The server provides a dynamically generated key.
+}
+
+message SecureMessage {
+  bytes payload = 1; // Encrypted data.
+}

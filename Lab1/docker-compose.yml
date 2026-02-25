@@ -1,0 +1,48 @@
+services:
+  # The central gRPC Server
+  grpc-server:
+    build:
+      context: .
+      dockerfile: GrpcSecure.Server/Dockerfile
+    ports:
+      - "8080:8080" 
+    networks:
+      - secure-net
+    restart: unless-stopped
+
+  # API Client 1 - Exposed on Host Port 8081
+  api-client-1:
+    build:
+      context: .
+      dockerfile: GrpcSecure.ApiClient/Dockerfile
+    environment:
+      - GrpcServer__Endpoint=http://grpc-server:8080
+      - ASPNETCORE_URLS=http://+:80
+    ports:
+      - "8081:80" 
+    depends_on:
+      - grpc-server
+    networks:
+      - secure-net
+    restart: unless-stopped
+
+  # API Client 2 - Exposed on Host Port 8082
+  api-client-2:
+    build:
+      context: .
+      dockerfile: GrpcSecure.ApiClient/Dockerfile
+    environment:
+      - GrpcServer__Endpoint=http://grpc-server:8080
+      - ASPNETCORE_URLS=http://+:80
+    ports:
+      - "8082:80"
+    depends_on:
+      - grpc-server
+    networks:
+      - secure-net
+    restart: unless-stopped
+
+# Define the isolated virtual network
+networks:
+  secure-net:
+    driver: bridge
