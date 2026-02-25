@@ -1,8 +1,7 @@
-using System.Text;
-using Grpc.Core;
 using GrpcSecure.ApiClient;
+using GrpcSecure.ApiClient.DTO;
+using GrpcSecure.ApiClient.Services;
 using GrpcSecure.Shared.Protos;
-using GrpcSecureShared;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,7 +13,7 @@ builder.Services.AddGrpcClient<SecureCommunication.SecureCommunicationClient>(op
 {
 	options.Address = new Uri(grpcEndpoint);
 });
-builder.Services.AddSingleton<SecureChatSession>();
+builder.Services.AddSingleton<SecureChatSessionService>();
 
 // Add Swagger/OpenAPI services.
 builder.Services.AddEndpointsApiExplorer();
@@ -41,102 +40,83 @@ app.UseSwaggerUI(c =>
 	c.SwaggerEndpoint("/swagger/v1/swagger.json", "GrpcSecure API Client v1");
 });
 
-// Initialize Handshake on startup.
+// Initialize Handshake and Background Stream on startup.
 using (var scope = app.Services.CreateScope())
 {
-	var session = scope.ServiceProvider.GetRequiredService<SecureChatSession>();
+	var session = scope.ServiceProvider.GetRequiredService<SecureChatSessionService>();
 	await session.InitializeAsync();
 }
 
-// Expose the endpoint to send messages.
-// Usage: http://localhost:<port>/send/YourMessageHere
+// ====================================================================
+// ENDPOINTS REGISTRATION
+// ====================================================================
 app
-	.MapGet("/send/{message}", async (string message, SecureChatSession chatSession) =>
+	.MapGet("/status", (SecureChatSessionService chatSession) =>
+	{
+		return Results.Ok(new { ActiveSessionId = chatSession.CurrentSessionId });
+	})
+	.WithName("GetStatus")
+	.WithTags("1. System")
+	.WithSummary("Gets the current connection status")
+	.WithDescription("Returns the active gRPC Session ID and internal container info.");
+
+app
+	.MapGet("/unary/ping/{message}", async (string message, SecureChatSessionService chatSession) =>
 	{
 		try
 		{
-			string serverReply = await chatSession.SendMessageAsync(message);
+			string serverReply = await chatSession.SendUnaryMessageAsync(message);
 			return Results.Ok(new
 			{
 				Status = "Success",
-				SentMessage = message,
-				DecryptedServerReply = serverReply
+				Sent = message,
+				ServerReply = serverReply
 			});
 		}
 		catch (Exception ex)
 		{
-			return Results.Problem($"Failed to send message: {ex.Message}");
+			return Results.Problem(ex.Message);
 		}
 	})
-	.WithName("SendMessageToGrpc")
-	.WithSummary("Sends an encrypted message via gRPC")
-	.WithDescription("Encrypts the provided route parameter using the active XOR session key and proxies it to the backend gRPC Server.");
+	.WithName("PingServer")
+	.WithTags("2. Direct Server Call")
+	.WithSummary("Sends an encrypted message via gRPC (like '/server <msg>' in console)")
+	.WithDescription("Encrypts the provided route parameter using the active XOR session key and proxies it to the backend gRPC Server via a Unary call.");
 
 app
-	.MapGet("/status", (SecureChatSession chatSession) =>
+	.MapPost("/chat/send", async (ChatRequest request, SecureChatSessionService chatSession) =>
 	{
-		return Results.Ok(new
+		try
 		{
-			ContainerName = Environment.MachineName,
-			ActiveSessionId = chatSession.CurrentSessionId,
-			IsConnected = !string.IsNullOrEmpty(chatSession.CurrentSessionId)
-		});
+			await chatSession.SendChatMessageAsync(request.TargetSessionId, request.Message);
+			return Results.Ok(new { Status = "Message Sent to Stream" });
+		}
+		catch (Exception ex) { return Results.Problem(ex.Message); }
 	})
-	.WithName("GetClientStatus")
-	.WithSummary("Gets the current connection status")
-	.WithDescription("Returns the active gRPC Session ID and internal container info.");
+	.WithName("SendChatMessage")
+	.WithTags("3. Client-to-Client Chat")
+	.WithSummary("Sends an encrypted message from this client to a target client (like '/to <id> /m <msg>' in console)")
+	.WithDescription("Encrypts the payload using this client's XOR key and pushes it into the active gRPC Bidirectional Stream. The server will decrypt it, re-encrypt it with the target's key, and route it to the destination.");
+
+app
+	.MapGet("/chat/inbox", (SecureChatSessionService chatSession) =>
+	{
+		return Results.Ok(chatSession.GetInboxMessages());
+	})
+	.WithName("CheckInbox")
+	.WithTags("3. Client-to-Client Chat")
+	.WithSummary("Retrieves all received messages from the background stream")
+	.WithDescription("Reads the local in-memory queue (Inbox) of messages that have been asynchronously received via the gRPC Bidirectional Stream and decrypted using this client's XOR key.");
+
+app
+	.MapDelete("/chat/inbox", (SecureChatSessionService chatSession) =>
+	{
+		chatSession.ClearInbox();
+		return Results.Ok(new { Status = "Inbox Cleared" });
+	})
+	.WithName("ClearInbox")
+	.WithTags("3. Client-to-Client Chat")
+	.WithSummary("Clears all messages from the local inbox")
+	.WithDescription("Empties the in-memory queue of received messages. This action only affects this specific API Gateway instance and does not impact the server or other clients.");
 
 app.Run();
-
-
-// --- Session Manager ---
-public class SecureChatSession
-{
-	private string _sessionId = string.Empty;
-	private byte[] _sessionKey = Array.Empty<byte>();
-
-	private readonly SecureCommunication.SecureCommunicationClient _rClient;
-	private readonly ILogger<SecureChatSession> _rLogger;
-
-	// [DN]: used for a demonstration.
-	public string CurrentSessionId => _sessionId;
-
-	public SecureChatSession(SecureCommunication.SecureCommunicationClient client, ILogger<SecureChatSession> logger)
-	{
-		_rClient = client;
-		_rLogger = logger;
-	}
-
-	public async Task InitializeAsync()
-	{
-		_rLogger.LogInformation("- Performing handshake with gRPC server...");
-		var handshakeResponse = await _rClient.HandshakeAsync(new HandshakeRequest());
-
-		_sessionId = handshakeResponse.SessionId;
-		_sessionKey = handshakeResponse.XorKey.ToByteArray();
-
-		_rLogger.LogInformation("- Handshake successful. Session ID: [{SessionId}].", _sessionId);
-	}
-
-	public async Task<string> SendMessageAsync(string text)
-	{
-		var headers = new Metadata { { "session-id", _sessionId } };
-
-		byte[] payloadBytes = Encoding.UTF8.GetBytes(text);
-		byte[] encryptedPayloadBytes = XorCipherHelper.Process(payloadBytes, _sessionKey);
-
-		var request = new SecureMessage { Payload = Google.Protobuf.ByteString.CopyFrom(encryptedPayloadBytes) };
-
-		string messageToSend = Convert.ToBase64String(encryptedPayloadBytes);
-		_rLogger.LogInformation("- Sending message: [{message}].", messageToSend);
-
-		var response = await _rClient.SendMessageAsync(request, headers);
-
-		byte[] decryptedResponseBytes = XorCipherHelper.Process(response.Payload.ToByteArray(), _sessionKey);
-		string serverReply = Encoding.UTF8.GetString(decryptedResponseBytes);
-
-		_rLogger.LogInformation("- Server Reply: [{reply}].", serverReply);
-
-		return serverReply;
-	}
-}

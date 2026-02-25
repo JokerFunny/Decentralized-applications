@@ -5,15 +5,18 @@ option csharp_namespace = "GrpcSecure.Shared.Protos";
 package securemessaging;
 
 service SecureCommunication {
-  // 1. Initial connection to obtain a session and a key.
+// 1. Initial connection to obtain a session and a key.
   rpc Handshake (HandshakeRequest) returns (HandshakeResponse);
   
-  // 2. Secure message exchange.
+  // 2. Unary call: Simple client-to-server encrypted message (Echo/Test).
   rpc SendMessage (SecureMessage) returns (SecureMessage);
+
+  // 3. Bidirectional stream: Real-time client-to-client chat relay.
+  rpc ChatStream (stream ChatMessage) returns (stream ChatMessage);
 }
 
+// --- Messages for Handshake ---
 message HandshakeRequest {
-    // Can be empty, or contain client capabilities.
 }
 
 message HandshakeResponse {
@@ -21,6 +24,19 @@ message HandshakeResponse {
   bytes xor_key = 2; // The server provides a dynamically generated key.
 }
 
+// --- Messages for Unary SendMessage ---
 message SecureMessage {
   bytes payload = 1; // Encrypted data.
+}
+
+// --- Messages for Bidirectional ChatStream ---
+message ChatMessage {
+  // The ID of the client this message is intended for.
+  string target_session_id = 1; 
+  
+  // The ID of the client who sent this message (populated by the server).
+  string sender_session_id = 2; 
+  
+  // The encrypted data.
+  bytes payload = 3; 
 }
