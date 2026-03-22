@@ -1,0 +1,74 @@
+services:
+  registry-server:
+    image: p2p-registry
+    build:
+      context: .
+      dockerfile: DecentralizedChat.RegistryServer/Dockerfile
+    ports:
+      - "7000:7000"
+    networks:
+      - p2p-network
+
+  # First peer client - Alice.
+  peer-alice:
+    image: p2p-node
+    build:
+      context: .
+      dockerfile: DecentralizedChat.PeerNode/Dockerfile
+    ports:
+      - "8081:8081" # Map Swagger to localhost:8081
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8081;http://+:5001
+      - Logging__LogLevel__Default=Debug
+      - NodeConfig__NodeId=Alice
+      - NodeConfig__ListenAddress=http://peer-alice:5001
+      - NodeConfig__RegistryAddress=http://registry-server:7000
+    networks:
+      - p2p-network
+    depends_on:
+      - registry-server
+
+  # First peer client - Bob.
+  peer-bob:
+    image: p2p-node
+    build:
+      context: .
+      dockerfile: DecentralizedChat.PeerNode/Dockerfile
+    ports:
+      - "8082:8081" # Map Swagger to localhost:8082
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8081;http://+:5001
+      - Logging__LogLevel__Default=Debug
+      - NodeConfig__NodeId=Bob
+      - NodeConfig__ListenAddress=http://peer-bob:5001 
+      - NodeConfig__RegistryAddress=http://registry-server:7000
+    networks:
+      - p2p-network
+    depends_on:
+      - registry-server
+
+  # Third peer client - Nick.
+  peer-nick:
+    image: p2p-node
+    build:
+      context: .
+      dockerfile: DecentralizedChat.PeerNode/Dockerfile
+    ports:
+      - "8083:8081" # Map Swagger to localhost:8083
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8081;http://+:5001
+      - Logging__LogLevel__Default=Debug
+      - NodeConfig__NodeId=Nick
+      - NodeConfig__ListenAddress=http://peer-nick:5001
+      - NodeConfig__RegistryAddress=http://registry-server:7000
+    networks:
+      - p2p-network
+    depends_on:
+      - registry-server
+
+networks:
+  p2p-network:
+    driver: bridge

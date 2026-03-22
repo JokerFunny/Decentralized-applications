@@ -1,0 +1,50 @@
+﻿syntax = "proto3";
+
+option csharp_namespace = "Shared.Protos";
+
+package p2pchat.registry;
+
+// Used ONLY for peer discovery. The server does NOT route messages.
+service RegistryService {
+    // A peer announces its presence to the network
+    rpc RegisterNode (RegisterRequest) returns (RegisterResponse);
+    
+    // A peer requests a list of all currently active peers
+    rpc GetActiveNodes (GetNodesRequest) returns (GetNodesResponse);
+    
+    // A peer gracefully disconnects from the network
+    rpc UnregisterNode (UnregisterRequest) returns (UnregisterResponse);
+}
+
+message RegisterRequest {
+    string node_id = 1;      // Unique identifier for the peer
+    string address = 2;      // IP:Port where this peer listens for P2P connections
+    string public_key = 3;   // RSA Public Key (Base64)
+}
+
+message RegisterResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetNodesRequest {
+    string requester_node_id = 1; 
+}
+
+message PeerInfo {
+    string node_id = 1;
+    string address = 2;
+    string public_key = 3;
+}
+
+message GetNodesResponse {
+    repeated PeerInfo peers = 1; 
+}
+
+message UnregisterRequest {
+    string node_id = 1;
+}
+
+message UnregisterResponse {
+    bool success = 1;
+}

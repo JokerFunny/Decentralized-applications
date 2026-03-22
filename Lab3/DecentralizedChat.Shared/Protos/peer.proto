@@ -1,0 +1,24 @@
+﻿syntax = "proto3";
+
+option csharp_namespace = "Shared.Protos";
+
+package p2pchat.peer;
+
+// Hosted by EVERY peer to receive direct, decentralized messages.
+service PeerService {
+    // Sends an encrypted message directly from Peer A to Peer B
+    rpc SendDirectMessage (DirectMessage) returns (MessageAck);
+}
+
+message DirectMessage {
+    string sender_id = 1;           // ID of the sender
+    bytes encrypted_xor_key = 2;    // Symmetric XOR key, encrypted with Receiver's RSA Public Key
+    bytes encrypted_content = 3;    // Message text, encrypted using the XOR cipher
+    bytes digital_signature = 4;    // SHA256 hash of the plaintext, signed with Sender's RSA Private Key
+    int64 timestamp = 5;            // Unix timestamp
+}
+
+message MessageAck {
+    bool delivered = 1;             // Indicates if decryption and verification succeeded
+    string error_message = 2;       // Error details if validation fails
+}
