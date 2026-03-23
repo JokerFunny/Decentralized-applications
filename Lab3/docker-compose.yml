@@ -29,7 +29,7 @@ services:
     depends_on:
       - registry-server
 
-  # First peer client - Bob.
+  # Second peer client - Bob.
   peer-bob:
     image: p2p-node
     build:
